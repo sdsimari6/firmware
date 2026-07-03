@@ -65,8 +65,9 @@ int32_t PowerTelemetryModule::runOnce()
         return disable();
     }
 
-    uint32_t sendToMeshIntervalMs = Default::getConfiguredOrDefaultMsScaled(
-        moduleConfig.telemetry.power_update_interval, default_telemetry_broadcast_interval_secs, numOnlineNodes);
+    uint32_t sendToMeshIntervalMs = Default::getConfiguredOrDefaultMsScaled(moduleConfig.telemetry.power_update_interval,
+                                                                            default_telemetry_broadcast_interval_secs,
+                                                                            numOnlineNodes, TrafficType::TELEMETRY);
 
     if (firstTime) {
         // This is the first time the OSThread library has called this function, so do some setup
@@ -253,6 +254,7 @@ bool PowerTelemetryModule::getPowerTelemetry(meshtastic_Telemetry *m)
         m->variant.power_metrics.has_ch3_voltage = false;
         m->variant.power_metrics.has_ch3_current = false;
     }
+#endif // DUAL_INA219
 #endif
 
     return valid;
