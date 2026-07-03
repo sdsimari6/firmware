@@ -23,6 +23,16 @@
 #include "graphics/ScreenFonts.h"
 #include <Throttle.h>
 
+// --- Dual INA219 patch (T114): ch1 = bateria (0x41), ch2 = panel solar (0x40) ---
+#if __has_include(<Adafruit_INA219.h>)
+#include <Adafruit_INA219.h>
+#define DUAL_INA219 1
+static Adafruit_INA219 inaBatt(0x41);  // Ch1: linea de la bateria (A0 a VCC)
+static Adafruit_INA219 inaPanel(0x40); // Ch2: linea del panel solar
+static bool inaBattOk = false;
+static bool inaPanelOk = false;
+#endif
+
 static constexpr uint16_t TX_HISTORY_KEY_POWER_TELEMETRY = 0x8005;
 
 namespace graphics
@@ -55,9 +65,8 @@ int32_t PowerTelemetryModule::runOnce()
         return disable();
     }
 
-    uint32_t sendToMeshIntervalMs = Default::getConfiguredOrDefaultMsScaled(moduleConfig.telemetry.power_update_interval,
-                                                                            default_telemetry_broadcast_interval_secs,
-                                                                            numOnlineNodes, TrafficType::TELEMETRY);
+    uint32_t sendToMeshIntervalMs = Default::getConfiguredOrDefaultMsScaled(
+        moduleConfig.telemetry.power_update_interval, default_telemetry_broadcast_interval_secs, numOnlineNodes);
 
     if (firstTime) {
         // This is the first time the OSThread library has called this function, so do some setup
@@ -79,6 +88,14 @@ int32_t PowerTelemetryModule::runOnce()
                 result = ina3221Sensor.isInitialized() ? 0 : ina3221Sensor.runOnce();
             if (max17048Sensor.hasSensor())
                 result = max17048Sensor.isInitialized() ? 0 : max17048Sensor.runOnce();
+#ifdef DUAL_INA219
+            // T114: los sensores del header cuelgan de Wire1 (P0.16/P0.13)
+            inaBattOk = inaBatt.begin(&Wire1);
+            inaPanelOk = inaPanel.begin(&Wire1);
+            LOG_INFO("[PowerTelemetry] Dual INA219: batt@0x41=%d panel@0x40=%d", inaBattOk, inaPanelOk);
+            if (inaBattOk || inaPanelOk)
+                result = 0;
+#endif
         }
 
         // it's possible to have this module enabled, only for displaying values on the screen.
@@ -215,6 +232,27 @@ bool PowerTelemetryModule::getPowerTelemetry(meshtastic_Telemetry *m)
         valid = ina3221Sensor.getMetrics(m);
     if (max17048Sensor.hasSensor())
         valid = max17048Sensor.getMetrics(m);
+#ifdef DUAL_INA219
+    // ch1 = bateria (0x41), ch2 = panel solar (0x40); pisa lo que haya escrito el auto-detect
+    if (inaBattOk) {
+        m->variant.power_metrics.has_ch1_voltage = true;
+        m->variant.power_metrics.has_ch1_current = true;
+        m->variant.power_metrics.ch1_voltage = inaBatt.getBusVoltage_V() + (inaBatt.getShuntVoltage_mV() / 1000.0f);
+        m->variant.power_metrics.ch1_current = inaBatt.getCurrent_mA();
+        valid = true;
+    }
+    if (inaPanelOk) {
+        m->variant.power_metrics.has_ch2_voltage = true;
+        m->variant.power_metrics.has_ch2_current = true;
+        m->variant.power_metrics.ch2_voltage = inaPanel.getBusVoltage_V() + (inaPanel.getShuntVoltage_mV() / 1000.0f);
+        m->variant.power_metrics.ch2_current = inaPanel.getCurrent_mA();
+        valid = true;
+    }
+    if (inaBattOk || inaPanelOk) {
+        // limpia el ch3 fantasma que deja el INA219 del auto-detect
+        m->variant.power_metrics.has_ch3_voltage = false;
+        m->variant.power_metrics.has_ch3_current = false;
+    }
 #endif
 
     return valid;
