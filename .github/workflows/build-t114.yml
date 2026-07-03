@@ -1,0 +1,31 @@
+# Colocar en .github/workflows/build-t114.yml de TU fork de meshtastic/firmware
+# Se ejecuta a mano desde la pestana Actions ("Run workflow") y deja el .uf2 como artifact
+name: build-t114-dual-ina219
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install PlatformIO
+        run: pip install -U platformio
+
+      - name: Build heltec-mesh-node-t114
+        run: pio run -e heltec-mesh-node-t114
+
+      - name: Upload UF2
+        uses: actions/upload-artifact@v4
+        with:
+          name: firmware-t114-dual-ina219
+          path: |
+            .pio/build/heltec-mesh-node-t114/*.uf2
+            .pio/build/heltec-mesh-node-t114/*.hex
